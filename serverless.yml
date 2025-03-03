@@ -1,0 +1,104 @@
+service: badminton-backend
+
+params:
+  default:
+    authorizer: https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_POOL_ID
+
+provider:
+  name: aws
+  runtime: provided.al2
+  timeout: 29
+  architecture: arm64
+  region: ap-southeast-1
+  deploymentMethod: direct
+  deploymentBucket:
+    name: gumball-serverless
+    blockPublicAccess: true
+
+  environment:
+    DB_HOST: ${env:DB_HOST}
+    DB_PORT: ${env:DB_PORT}
+    DB_USER: ${env:DB_USER}
+    DB_PASSWORD: ${env:DB_PASSWORD}
+    DB_NAME: ${env:DB_NAME}
+    DB_SSL_MODE: "require"
+    JWT_SECRET: "your_jwt_secret_key"
+    GOOGLE_CLIENT_ID: "your_client_id"
+    GOOGLE_CLIENT_SECRET: "your_client_secret"
+    AUTH_REDIRECT_URL: ${env:AUTH_REDIRECT_URL}
+    CMS_URL : ${env:CMS_URL}
+    COGNITO_ISSUER: ${env:COGNITO_ISSUER}
+
+  httpApi:
+    cors:
+      allowedOrigins:
+        - "http://localhost:5173"
+      allowedMethods:
+        - "GET"
+        - "POST"
+        - "PATCH"
+        - "PUT"
+        - "DELETE"
+        - "OPTIONS"
+      allowedHeaders:
+        - "Origin"
+        - "Content-Type"
+        - "Accept"
+        - "Authorization"
+        - "CognitoAuthorization"
+        - "x-amz-date"
+        - "x-amz-security-token"
+        - "x-amz-user-agent"
+        - "x-amzn-trace-id"
+      allowCredentials: true
+      maxAge: 0
+    authorizers:
+      cognitoAuthorizer:
+        type: jwt
+        identitySource: $request.header.CognitoAuthorization
+        issuerUrl: ${param:authorizer}
+        audience:
+          - cognito_client_id
+
+package:
+  individually: true
+
+functions:
+  api:
+    handler: bootstrap
+    package:
+      artifact: build/main.zip
+    events:
+      - httpApi:
+          method: get
+          path: '/{proxy+}'
+          authorizer:
+            name: cognitoAuthorizer  
+      - httpApi:
+          method: post
+          path: '/{proxy+}'
+          authorizer:
+            name: cognitoAuthorizer  
+      - httpApi:
+          method: put
+          path: '/{proxy+}'
+          authorizer:
+            name: cognitoAuthorizer  
+      - httpApi:
+          method: delete
+          path: '/{proxy+}'
+          authorizer:
+            name: cognitoAuthorizer  
+      - httpApi:
+          method: patch
+          path: '/{proxy+}'
+          authorizer:
+            name: cognitoAuthorizer  
+    vpc:
+      securityGroupIds:
+        - sg-1
+        - sg-2
+      subnetIds:
+        - subnet-A
+        - subnet-B
+        - subnet-C

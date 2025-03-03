@@ -25,13 +25,14 @@ This is the backend for the Badminton application, built using **Golang** and **
 - **User Authentication**:
   - Google OAuth2 login.
   - JWT-based authentication for protected routes.
+  - AWS Congnito (Updating)
 - **Session Management**:
   - Create, update, and delete badminton sessions.
   - Allow users to attend sessions.
 - **Admin Role**:
-  - Admins can create and manage sessions.
+  - Admins can create and manage sessions & courts.
 - **Swagger Documentation**:
-  - Automatically generated API documentation using **go-swagger**.
+  - Automatically generated API documentation using **go-swagger**. (In progress)
 
 ---
 
@@ -63,7 +64,7 @@ This is the backend for the Badminton application, built using **Golang** and **
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/alanrb/badminton.git
+   git clone https://github.com/alanrb/badminton-backend.git
    cd badminton/backend
    ```
 
@@ -78,6 +79,9 @@ This is the backend for the Badminton application, built using **Golang** and **
    JWT_SECRET=your_jwt_secret_key
    GOOGLE_CLIENT_ID=your_google_client_id
    GOOGLE_CLIENT_SECRET=your_google_client_secret
+   AUTH_REDIRECT_URL=http://localhost:8080/auth/google/callback
+   CMS_URL=http://localhost:5173
+   COGNITO_ISSUER=https://cognito-idp.(REGION).amazonaws.com/(REGION)_(POOL_ID)
    ```
 
 3. **Start PostgreSQL**:
@@ -171,9 +175,13 @@ The API documentation is automatically generated using **go-swagger** and is ava
 | `DB_USER`           | PostgreSQL username                  | `postgres`                   |
 | `DB_PASSWORD`       | PostgreSQL password                  | `yourpassword`               |
 | `DB_NAME`           | PostgreSQL database name             | `badminton_db`               |
+| `DB_SSL_MODE`       | PostgreSQL database sslmode          | `disable`                    |
 | `JWT_SECRET`        | Secret key for JWT tokens            | `your_jwt_secret_key`        |
 | `GOOGLE_CLIENT_ID`  | Google OAuth2 client ID              | `your_google_client_id`      |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth2 client secret       | `your_google_client_secret`  |
+| `AUTH_REDIRECT_URL` | Auth redirect url       | `http://localhost:8080/auth/google/callback`  |
+| `CMS_URL` | Redirect to the frontend with the JWT token       | `http://localhost:5173`  |
+| `COGNITO_ISSUER` | Cognito authorization endpoint handles user authentication       | `https://cognito-idp.(REGION).amazonaws.com/(REGION)_(POOL_ID)`  |
 
 ---
 
