@@ -180,6 +180,7 @@ func UpdateUser(c echo.Context) error {
 	}
 	cc := c.(*auth.Context)
 	ctxUser := cc.AuthUser()
+	isAdmin := IsAdmin(database.DB, ctxUser.ID)
 
 	type updateUserRequest struct {
 		AvatarURL string   `json:"avatar_url"`
@@ -208,7 +209,7 @@ func UpdateUser(c echo.Context) error {
 		// Validate roles if provided
 		if len(req.Roles) > 0 {
 			// Check if the current user has admin privileges
-			if ctxUser.Role != models.UserRoleAdmin {
+			if !isAdmin {
 				return c.JSON(http.StatusForbidden, map[string]string{"error": "Only admins can update user roles"})
 			}
 
@@ -291,4 +292,18 @@ func GetRoles(db *gorm.DB, userID string) ([]string, error) {
 		return nil, err
 	}
 	return roles, nil
+}
+
+// IsAdmin checks if a user has the admin role
+func IsAdmin(db *gorm.DB, userID string) bool {
+	var isAdmin bool
+	err := db.Model(&models.UserRole{}).
+		Joins("JOIN roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND roles.name = ?", userID, models.UserRoleAdmin).
+		Select("COUNT(*) > 0").
+		Scan(&isAdmin).Error
+	if err != nil {
+		return false
+	}
+	return isAdmin
 }

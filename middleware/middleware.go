@@ -7,6 +7,7 @@ import (
 
 	"github.com/alanrb/badminton/backend/auth"
 	"github.com/alanrb/badminton/backend/database"
+	"github.com/alanrb/badminton/backend/handlers"
 	"github.com/alanrb/badminton/backend/models"
 	"github.com/golang-jwt/jwt/v5"
 	echojwt "github.com/labstack/echo-jwt/v4"
@@ -33,16 +34,7 @@ func AdminOnly(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 
 		// Double-check admin status in the database
-		var isAdmin bool
-		err := database.DB.Model(&models.UserRole{}).
-			Joins("JOIN roles ON user_roles.role_id = roles.id").
-			Where("user_roles.user_id = ? AND roles.name = ?", authUser.ID, models.UserRoleAdmin).
-			Select("COUNT(*) > 0").
-			Scan(&isAdmin).Error
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Admin access required"})
-		}
-
+		var isAdmin = handlers.IsAdmin(database.DB, authUser.ID)
 		if !isAdmin {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "Admin access required"})
 		}

@@ -65,16 +65,7 @@ func ListGroups(c echo.Context) error {
 	pagination := database.GetPagination(c.QueryParam("page"), c.QueryParam("limit"))
 
 	// Check if the user is an admin
-	var isAdmin bool
-	err := database.DB.Model(&models.UserRole{}).
-		Joins("JOIN roles ON user_roles.role_id = roles.id").
-		Where("user_roles.user_id = ? AND roles.name = ?", userID, "admin").
-		Select("COUNT(*) > 0").
-		Scan(&isAdmin).Error
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check admin role"})
-	}
-
+	var isAdmin = IsAdmin(database.DB, userID)
 	var groups []*models.Group
 	var total int64
 
@@ -185,15 +176,16 @@ func DeleteGroup(c echo.Context) error {
 
 	// Check if the user has permission to delete the group
 	cc := c.(*auth.Context)
-
 	userID := cc.AuthUser().ID
+	isAdmin := IsAdmin(database.DB, userID)
+
 	var group models.Group
 	if err := database.DB.Where("id = ?", groupID).First(&group).Error; err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "Group not found"})
 	}
 
 	// Only the group owner or admin can delete the group
-	if group.OwnerID != userID && cc.AuthUser().Role != models.UserRoleAdmin {
+	if group.OwnerID != userID && !isAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "You do not have permission to delete this group"})
 	}
 
@@ -213,6 +205,7 @@ func GetGroupDetails(c echo.Context) error {
 	}
 
 	cc := c.(*auth.Context)
+	isAdmin := IsAdmin(database.DB, cc.AuthUser().ID)
 
 	// Check if the user is a member of the group
 	isMember, err := IsGroupMember(database.DB, groupID, cc.AuthUser().ID)
@@ -220,7 +213,7 @@ func GetGroupDetails(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check group membership"})
 	}
 
-	if !isMember && cc.AuthUser().Role != models.UserRoleAdmin {
+	if !isMember && !isAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "You are not a member of this group"})
 	}
 

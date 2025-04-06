@@ -26,6 +26,8 @@ func CreateSession(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get authentication context"})
 	}
 
+	isAdmin := IsAdmin(database.DB, cc.AuthUser().ID)
+
 	session := models.Session{
 		CreatedBy:   cc.AuthUser().ID,
 		Description: request.Description,
@@ -65,7 +67,7 @@ func CreateSession(c echo.Context) error {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check group membership"})
 		}
 
-		if !isMember && cc.AuthUser().Role != models.UserRoleAdmin {
+		if !isMember && !isAdmin {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "Only group members can create sessions for the group"})
 		}
 
@@ -84,7 +86,6 @@ func CreateSession(c echo.Context) error {
 	database.DB.Create(&session)
 	return c.JSON(http.StatusOK, dto.ToSessionResponse(&session))
 }
-
 func AttendSession(c echo.Context) error {
 	// Parse session ID from the request
 	sessionID, err := getSessionID(c)
@@ -117,6 +118,8 @@ func AttendSession(c echo.Context) error {
 		}
 	}()
 
+	isAdmin := IsAdmin(tx, userID)
+
 	// Fetch the session from the database
 	var session models.Session
 	if err := tx.First(&session, "id = ?", sessionID).Error; err != nil {
@@ -128,6 +131,22 @@ func AttendSession(c echo.Context) error {
 	if !session.CanAttend() {
 		tx.Rollback()
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Session is not open for attendance"})
+	}
+
+	// Check if the session is associated with a group
+	if session.GroupID != nil {
+		// Check if the user is a member of the group
+		isMember, err := IsGroupMember(tx, *session.GroupID, userID)
+		if err != nil {
+			tx.Rollback()
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check group membership"})
+		}
+
+		// Only allow group members or admins to attend group sessions
+		if !isMember && !isAdmin {
+			tx.Rollback()
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Only group members can attend this session"})
+		}
 	}
 
 	// Check if the user is already attending the session
@@ -212,39 +231,92 @@ func GetSessionDetails(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
+	// Get authenticated user
+	cc := c.(*auth.Context)
+	userID := cc.AuthUser().ID
+	isAdmin := IsAdmin(database.DB, userID)
+
+	// Fetch session with preloaded relationships
 	var session models.Session
-	result := database.DB.Preload("Group").First(&session, "id = ?", sessionID) // Query the database
+	result := database.DB.
+		Preload("Group").
+		Preload("BadmintonCourt").
+		Preload("Attendees.User").
+		First(&session, "id = ?", sessionID)
+
 	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "Session not found"})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch session details"})
 	}
 
-	return c.JSON(http.StatusOK, dto.ToSessionResponse(&session)) // Return the session details as JSON
+	// Check access permissions for group sessions
+	if session.GroupID != nil && !isAdmin {
+		isMember, err := IsGroupMember(database.DB, *session.GroupID, userID)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check group membership"})
+		}
+		if !isMember {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "You must be a member of the group to view this session"})
+		}
+	}
+
+	// Return the session details as JSON
+	return c.JSON(http.StatusOK, dto.ToSessionResponse(&session))
 }
 
 func GetSessions(c echo.Context) error {
-	var sessions []models.Session
+	// Get pagination parameters using the utility
+	pagination := database.GetPagination(c.QueryParam("page"), c.QueryParam("limit"))
+
+	var sessions []*models.Session
+	var total int64
 	currentTime := time.Now()
-	database.DB.Table("sessions").
-		Select("sessions.*, users.name as created_by_name").
+
+	cc := c.(*auth.Context)
+	userID := cc.AuthUser().ID
+	isAdmin := IsAdmin(database.DB, userID)
+
+	// Build base query
+	baseQuery := database.DB.Table("sessions").
 		Joins("left join users on users.id = sessions.created_by").
-		Where("sessions.date_time > ?", currentTime).
+		Where("sessions.date_time > ?", currentTime)
+
+	var filteredQuery *gorm.DB
+	if isAdmin {
+		// Admin can see all sessions
+		filteredQuery = baseQuery
+	} else {
+		// Regular users can only see sessions that are public or from groups they belong to
+		filteredQuery = baseQuery.Where("(sessions.group_id IS NULL) OR (sessions.group_id IS NOT NULL AND sessions.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?))", userID)
+	}
+
+	// Count total sessions for pagination
+	filteredQuery.Count(&total)
+
+	// Get paginated sessions
+	filteredQuery.
+		Select("sessions.*, users.name as created_by_name").
 		Preload("BadmintonCourt").
 		Preload("Attendees.User").
 		Preload("Group").
+		Offset(pagination.Offset).
+		Limit(pagination.PageSize).
 		Find(&sessions)
 
-	// Convert users to DTOs
+	// Convert sessions to DTOs
 	var sessionResponses []dto.SessionResponse
 	for _, session := range sessions {
-		sessionResponses = append(sessionResponses, dto.ToSessionResponse(&session))
+		sessionResponses = append(sessionResponses, dto.ToSessionResponse(session))
 	}
 
 	// Return paginated response
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"data": sessionResponses,
+		"data":      sessionResponses,
+		"total":     total,
+		"page":      pagination.Page,
+		"page_size": pagination.PageSize,
 	})
 }
 
@@ -264,7 +336,8 @@ func UpdateSession(c echo.Context) error {
 	}
 
 	cc := c.(*auth.Context)
-	if session.CreatedBy != cc.AuthUser().ID && cc.AuthUser().Role != models.UserRoleAdmin {
+	isAdmin := IsAdmin(database.DB, cc.AuthUser().ID)
+	if session.CreatedBy != cc.AuthUser().ID && !isAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "You are not the creator of this session"})
 	}
 
@@ -365,7 +438,8 @@ func DeleteSession(c echo.Context) error {
 	}
 
 	cc := c.(*auth.Context)
-	if session.CreatedBy != cc.AuthUser().ID && cc.AuthUser().Role != models.UserRoleAdmin {
+	isAdmin := IsAdmin(database.DB, cc.AuthUser().ID)
+	if session.CreatedBy != cc.AuthUser().ID && !isAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "You are not the creator of this session"})
 	}
 
