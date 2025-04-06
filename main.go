@@ -9,6 +9,7 @@ import (
 	"github.com/alanrb/badminton/backend/database"
 	"github.com/alanrb/badminton/backend/handlers"
 	"github.com/alanrb/badminton/backend/middleware"
+	"github.com/alanrb/badminton/backend/rbac"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	echoadapter "github.com/awslabs/aws-lambda-go-api-proxy/echo"
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
+// EchoLambdaV2 is the adapter for AWS Lambda
 var echoLambda *echoadapter.EchoLambdaV2
 
 func loadEnv() {
@@ -32,6 +34,7 @@ func loadEnv() {
 }
 
 func main() {
+	// Load environment variables
 	loadEnv()
 
 	debugMode := os.Getenv("DEBUG_MODE") == "true"
@@ -46,6 +49,7 @@ func main() {
 	e.Server.WriteTimeout = time.Duration(60) * time.Second
 	e.Debug = debugMode
 
+	// Initialize OAuth2 configuration
 	oauth2 := oauth2.Config{
 		RedirectURL:  os.Getenv("AUTH_REDIRECT_URL"),
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
@@ -75,17 +79,19 @@ func main() {
 	// Protected routes
 	var protected *echo.Group
 	if os.Getenv("COGNITO_ISSUER") == "" {
+		// If Cognito is not used, use JWT middleware
 		protected = e.Group("/api", middleware.JWTConfig(jwtSecret))
 	} else {
+		// If Cognito is used, use Cognito middleware
 		protected = e.Group("/api")
 		protected.PUT("/auth/cognito", handlers.HandleCognitoUser)
 	}
 
-	protected.POST("/sessions", handlers.CreateSession)
+	protected.POST("/sessions", handlers.CreateSession, middleware.RBAC(database.DB, string(rbac.PermissionCreateSessions)))
 	protected.GET("/sessions", handlers.GetSessions)
 	protected.GET("/sessions/:session_id", handlers.GetSessionDetails)
-	protected.PUT("/sessions/:session_id", handlers.UpdateSession)
-	protected.DELETE("/sessions/:session_id", handlers.DeleteSession)
+	protected.PUT("/sessions/:session_id", handlers.UpdateSession, middleware.RBAC(database.DB, string(rbac.PermissionCreateSessions)))
+	protected.DELETE("/sessions/:session_id", handlers.DeleteSession, middleware.RBAC(database.DB, string(rbac.PermissionDeleteSessions)))
 	protected.DELETE("/sessions/:session_id/attend", handlers.CancelAttendance)
 	protected.POST("/sessions/:session_id/attend", handlers.AttendSession)
 
@@ -93,23 +99,29 @@ func main() {
 
 	protected.GET("/users/attended-sessions", handlers.GetAttendedSessions)
 
-	protected.GET("/badminton-courts", handlers.GetBadmintonCourts)
-	protected.GET("/badminton-courts/:id", handlers.GetBadmintonCourt)
+	protected.GET("/groups", handlers.ListGroups)
+	protected.POST("/groups", handlers.CreateGroup, middleware.RBAC(database.DB, string(rbac.PermissionCreateGroups)))
+	protected.POST("/groups/:group_id/players", handlers.AddPlayerToGroup, middleware.RBAC(database.DB, string(rbac.PermissionAddGroupPlayer)))
+	protected.DELETE("/groups/:group_id", handlers.DeleteGroup, middleware.RBAC(database.DB, string(rbac.PermissionDeleteGroups)))
+	protected.GET("/groups/:group_id", handlers.GetGroupDetails)
 
-	// Admin routes
+	protected.GET("/courts", handlers.GetBadmintonCourts)
+	protected.GET("/courts/:id", handlers.GetBadmintonCourt)
+
+	// Admin routes (only accessible to admins)
 	adminGroup := protected.Group("/admin", middleware.AdminOnly)
-	adminGroup.POST("/users", handlers.CreateUser)
-	adminGroup.GET("/users", handlers.GetUsers)
+	adminGroup.POST("/users", handlers.CreateUser, middleware.RBAC(database.DB, string(rbac.PermissionListUsers)))
+	adminGroup.GET("/users/:user_id", handlers.GetUser, middleware.RBAC(database.DB, string(rbac.PermissionEditUsers)))
+	adminGroup.GET("/users", handlers.GetUsers, middleware.RBAC(database.DB, string(rbac.PermissionListUsers)))
+	adminGroup.PUT("/users/:user_id", handlers.UpdateUser, middleware.RBAC(database.DB, string(rbac.PermissionEditUsers)))
 
-	adminGroup.POST("/sessions", handlers.CreateSession)
-	adminGroup.PUT("/sessions/:id/status", handlers.UpdateSessionStatus)
-	adminGroup.DELETE("/sessions/:id", handlers.DeleteSession)
+	adminGroup.POST("/sessions", handlers.CreateSession, middleware.RBAC(database.DB, string(rbac.PermissionCreateSessions)))
+	adminGroup.PUT("/sessions/:id/status", handlers.UpdateSessionStatus, middleware.RBAC(database.DB, string(rbac.PermissionCreateSessions)))
+	adminGroup.DELETE("/sessions/:id", handlers.DeleteSession, middleware.RBAC(database.DB, string(rbac.PermissionDeleteSessions)))
 
-	adminGroup.GET("/badminton-courts", handlers.GetBadmintonCourts)
-	adminGroup.GET("/badminton-courts/:id", handlers.GetBadmintonCourt)
-	adminGroup.POST("/badminton-courts", handlers.CreateBadmintonCourt)
-	adminGroup.PUT("/badminton-courts/:id", handlers.UpdateBadmintonCourt)
-	adminGroup.DELETE("/badminton-courts/:id", handlers.DeleteBadmintonCourt)
+	adminGroup.POST("/courts", handlers.CreateBadmintonCourt, middleware.RBAC(database.DB, string(rbac.PermissionCreateCourts)))
+	adminGroup.PUT("/courts/:id", handlers.UpdateBadmintonCourt, middleware.RBAC(database.DB, string(rbac.PermissionEditCourts)))
+	adminGroup.DELETE("/courts/:id", handlers.DeleteBadmintonCourt, middleware.RBAC(database.DB, string(rbac.PermissionDeleteCourts)))
 
 	// Check if running in Lambda
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {

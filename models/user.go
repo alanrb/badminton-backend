@@ -8,10 +8,11 @@ type AuthUser struct {
 
 type User struct {
 	BaseModel
-	GoogleID  string `gorm:"unique;not null"`
-	Email     string `gorm:"unique;not null"`
-	Name      string `gorm:"not null"`
-	Role      string `gorm:"type:varchar(20);default:'player'"`
+	GoogleID  string  `gorm:"unique;not null"`
+	Email     string  `gorm:"unique;not null"`
+	Name      string  `gorm:"not null"`
+	Role      string  `gorm:"type:varchar(20);default:'player'"`
+	Roles     []*Role `gorm:"many2many:user_roles;"`
 	AvatarURL string
 }
 

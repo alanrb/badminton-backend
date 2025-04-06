@@ -10,8 +10,9 @@ const (
 	SessionStatusCompleted = "completed"
 
 	// User Role
-	UserRolePlayer = "player"
-	UserRoleAdmin  = "admin"
+	UserRoleAdmin      = "admin"
+	UserRoleGroupOwner = "group_owner"
+	UserRolePlayer     = "player"
 
 	ApprovalStatusPending  ApprovalStatus = "pending"
 	ApprovalStatusApproved ApprovalStatus = "approved"
@@ -31,7 +32,7 @@ func ValidSessionStatus(status string) bool {
 // ValidUserRole checks if the user role is valid
 func ValidUserRole(role string) bool {
 	switch role {
-	case UserRolePlayer, UserRoleAdmin:
+	case UserRolePlayer, UserRoleAdmin, UserRoleGroupOwner:
 		return true
 	default:
 		return false

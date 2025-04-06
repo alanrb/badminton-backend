@@ -29,8 +29,8 @@ This is the backend for the Badminton application, built using **Golang** and **
 - **Session Management**:
   - Create, update, and delete badminton sessions.
   - Allow users to attend sessions.
-- **Admin Role**:
-  - Admins can create and manage sessions & courts.
+- **RBAC Middleware**:
+  - A middleware is used to enforce RBAC on protected routes. It checks if the authenticated user has the required permission to access the route.
 - **Swagger Documentation**:
   - Automatically generated API documentation using **go-swagger**. (In progress)
 

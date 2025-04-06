@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +9,7 @@ import (
 	"github.com/alanrb/badminton/backend/auth"
 	"github.com/alanrb/badminton/backend/database"
 	"github.com/alanrb/badminton/backend/models"
+	"github.com/alanrb/badminton/backend/models/dto"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
@@ -94,18 +93,18 @@ func HandleCognitoUser(c echo.Context) error {
 	}
 
 	// Check if the user already exists in the database
-	var user models.User
+	var user *models.User
 	if err := database.DB.Where("email = ?", userInfo.Email).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// If the user doesn't exist, create a new user
-			user = models.User{
+			user = &models.User{
 				BaseModel: models.BaseModel{
 					ID: userInfo.ID,
 				},
 				GoogleID:  userInfo.Email,
 				Email:     userInfo.Email,
 				Name:      userInfo.Name,
-				AvatarURL: generateAvatarURL(userInfo.Email),
+				AvatarURL: userInfo.Picture,
 				Role:      cc.AuthUser().Role,
 			}
 
@@ -117,24 +116,23 @@ func HandleCognitoUser(c echo.Context) error {
 		}
 	}
 
-	if err := database.DB.Model(&user).Updates(map[string]interface{}{"id": userInfo.ID}).Error; err != nil {
+	if err := database.DB.Model(&user).Updates(map[string]interface{}{"id": userInfo.ID, "name": userInfo.Name, "avatar_url": userInfo.Picture}).Error; err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update user"})
 	}
 
-	return c.JSON(http.StatusAccepted, nil)
-}
-
-func generateAvatarURL(email string) string {
-	if len(email) > 0 {
-		// Generate the Gravatar URL
-		emailHash := getMD5Hash(email)
-		return fmt.Sprintf("https://www.gravatar.com/avatar/%v?s=200", emailHash)
-	} else {
-		return ""
+	permissions, err := GetPermissions(database.DB, user.ID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch permissions"})
 	}
-}
 
-func getMD5Hash(text string) string {
-	hash := md5.Sum([]byte(text))
-	return hex.EncodeToString(hash[:])
+	roles, err := GetRoles(database.DB, user.ID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch roles"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"user":        dto.ToUserResponse(user),
+		"permissions": permissions,
+		"roles":       roles,
+	})
 }

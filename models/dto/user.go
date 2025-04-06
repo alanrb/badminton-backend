@@ -9,7 +9,7 @@ type UserResponse struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
-func ToUserResponse(user models.User) UserResponse {
+func ToUserResponse(user *models.User) UserResponse {
 	return UserResponse{
 		ID:        user.ID,
 		Name:      user.Name,

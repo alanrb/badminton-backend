@@ -21,7 +21,10 @@ func CreateSession(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	cc := c.(*auth.Context)
+	cc, ok := c.(*auth.Context)
+	if !ok {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get authentication context"})
+	}
 
 	session := models.Session{
 		CreatedBy:   cc.AuthUser().ID,
@@ -42,6 +45,32 @@ func CreateSession(c echo.Context) error {
 		}
 
 		session.BadmintonCourtID = &request.BadmintonCourtID
+	}
+
+	if len(request.GroupID) > 0 {
+		// Safety check
+		if err := uuid.Validate(request.GroupID); err != nil {
+			return errors.New("invalid group ID")
+		}
+
+		// Validate the group ID
+		var group *models.Group
+		if err := database.DB.First(&group, "id = ?", request.GroupID).Error; err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "Group not found"})
+		}
+
+		// Check if the user is a member of the group
+		isMember, err := IsGroupMember(database.DB, group.ID, cc.AuthUser().ID)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check group membership"})
+		}
+
+		if !isMember && cc.AuthUser().Role != models.UserRoleAdmin {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Only group members can create sessions for the group"})
+		}
+
+		// Associate the session with the group
+		session.GroupID = &group.ID
 	}
 
 	if request.DateTime == nil {
@@ -184,7 +213,7 @@ func GetSessionDetails(c echo.Context) error {
 	}
 
 	var session models.Session
-	result := database.DB.First(&session, "id = ?", sessionID) // Query the database
+	result := database.DB.Preload("Group").First(&session, "id = ?", sessionID) // Query the database
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "Session not found"})
@@ -204,6 +233,7 @@ func GetSessions(c echo.Context) error {
 		Where("sessions.date_time > ?", currentTime).
 		Preload("BadmintonCourt").
 		Preload("Attendees.User").
+		Preload("Group").
 		Find(&sessions)
 
 	// Convert users to DTOs

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alanrb/badminton/backend/auth"
+	"github.com/alanrb/badminton/backend/database"
 	"github.com/alanrb/badminton/backend/models"
 	"github.com/golang-jwt/jwt/v5"
 	echojwt "github.com/labstack/echo-jwt/v4"
@@ -13,17 +14,39 @@ import (
 	echomiddleware "github.com/labstack/echo/v4/middleware"
 )
 
+// AdminOnly middleware to check if the user is an admin
 func AdminOnly(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		cc := c.(*auth.Context)
+		cc, ok := c.(*auth.Context)
+		if !ok {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid context type"})
+		}
+
 		authUser := cc.AuthUser()
 		if authUser == nil {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "User not found"})
 		}
 
+		// Early return if the user role is already known not to be admin
 		if authUser.Role != models.UserRoleAdmin {
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "Admin access required"})
 		}
+
+		// Double-check admin status in the database
+		var isAdmin bool
+		err := database.DB.Model(&models.UserRole{}).
+			Joins("JOIN roles ON user_roles.role_id = roles.id").
+			Where("user_roles.user_id = ? AND roles.name = ?", authUser.ID, models.UserRoleAdmin).
+			Select("COUNT(*) > 0").
+			Scan(&isAdmin).Error
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Admin access required"})
+		}
+
+		if !isAdmin {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Admin access required"})
+		}
+
 		return next(c)
 	}
 }

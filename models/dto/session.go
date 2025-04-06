@@ -10,6 +10,7 @@ type NewSessionRequest struct {
 	BadmintonCourtID string     `json:"badminton_court_id"`
 	Description      string     `json:"description"`
 	MaxMembers       int        `json:"max_members"`
+	GroupID          string     `json:"group_id"`
 	DateTime         *time.Time `json:"date_time"`
 }
 
@@ -37,6 +38,7 @@ type SessionResponse struct {
 	CreatedByName    string                     `json:"created_by_name"`
 	Status           string                     `json:"status"`
 	BadmintonCourtID string                     `json:"badminton_court_id"`
+	GroupName        string                     `json:"group_name"`
 	Attendees        []*SessionAttendeeResponse `json:"attendees"`
 }
 
@@ -63,6 +65,10 @@ func ToSessionResponse(session *models.Session) SessionResponse {
 	}
 	if session.BadmintonCourt != nil {
 		resp.Location = session.BadmintonCourt.Name
+	}
+
+	if session.Group != nil {
+		resp.GroupName = session.Group.Name
 	}
 
 	var currentMembers = 0
