@@ -164,16 +164,20 @@ func SeedRolesAndPermissions(db *gorm.DB) {
 		log.Fatalf("Failed to assign permissions to roles: %v", err)
 	}
 
-	// if err := tx.Model(&groupOwnerRole).Association("Permissions").Append([]*models.Permission{
-	// 	createGroupPerm,
-	// 	listGroupPerm,
-	// 	addPlayerPerm,
-	// 	listCourtPerm,
-	// 	listSessionPerm,
-	// 	createSessionPerm,
-	// 	deleteSessionPerm}); err != nil {
-	// 	panic(fmt.Sprintf("Failed to assign group permissions: %v", err))
-	// }
+	groupOwnerRole.Permissions = append(playerRole.Permissions, []*models.Permission{
+		listGroupPerm,
+		editGroupPerm,
+		deleteGroupPerm,
+		listCourtPerm,
+		listSessionPerm,
+		createSessionPerm,
+		editSessionPerm,
+		deleteSessionPerm,
+	}...)
+	if err := tx.Save(&groupOwnerRole).Error; err != nil {
+		tx.Rollback()
+		log.Fatalf("Failed to assign group owner permissions: %v", err)
+	}
 
 	playerRole.Permissions = append(playerRole.Permissions, []*models.Permission{
 		listGroupPerm,
